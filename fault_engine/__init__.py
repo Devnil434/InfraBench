@@ -8,6 +8,7 @@ from fault_engine.registry import (
     get_fault,
     list_faults,
 )
+import fault_engine.faults  # Auto-registers standard faults
 
 __all__ = [
     "BaseFault",

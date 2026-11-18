@@ -1,0 +1,72 @@
+schema_version: "1.0"
+id: "network_latency_001"
+name: "Redis Cache Network Latency Injection"
+description: "Severe network latency (250ms with 50ms jitter) is introduced between the application and Redis cache service. Response times degrade significantly, impacting p95 and p99 metrics."
+difficulty: "medium"
+tags:
+  - "cache"
+  - "latency"
+  - "networking"
+  - "performance"
+seed: 202
+
+environment:
+  services:
+    - "app"
+    - "db"
+    - "cache"
+  endpoints:
+    app_url: "http://localhost:8000"
+    health_url: "http://localhost:8000/health"
+    redis_health_url: "http://localhost:8000/redis/health"
+    metrics_url: "http://localhost:8000/metrics"
+    orders_url: "http://localhost:8000/orders"
+  notes: "FastAPI queries Redis cache before falling back to PostgreSQL for orders."
+
+initial_symptoms:
+  - "Overall API p95 latency spikes above 250ms"
+  - "GET /redis/health probe latency is abnormally elevated"
+  - "Structured /metrics reports high latency while services remain UP"
+
+budget:
+  time_limit_seconds: 400
+  max_steps: 25
+  cost_limit_dollars: 0.75
+
+faults:
+  - type: "network_latency"
+    name: "inject_redis_latency"
+    description: "Adds 250ms latency with 50ms jitter to Redis network traffic"
+    params:
+      target_service: "cache"
+      latency_ms: 250
+      jitter_ms: 50
+      correlation_percent: 10.0
+      duration_seconds: 180
+      direction: "both"
+
+ground_truth:
+  root_cause: "Traffic control (tc netem) delay rule introduced 250ms bidirectional latency on container network interface connecting to Redis cache (infrabench-cache:6379)."
+  affected_services:
+    - "cache"
+    - "app"
+  expected_fix: "Remove the tc netem delay rule on the container network interface or reset network policy."
+  symptoms:
+    - "GET /metrics latency_ms.p95 > 200ms"
+    - "GET /redis/health reports status UP but with latency_ms > 250ms"
+
+success_probes:
+  - type: "health_probe"
+    name: "redis_latency_normalized"
+    description: "Verify Redis health check probe succeeds"
+    params:
+      endpoint: "/redis/health"
+      expected_service_status: "UP"
+      timeout_seconds: 5.0
+  - type: "metric_probe"
+    name: "p95_latency_under_threshold"
+    description: "Ensure p95 latency drops back below 100ms threshold"
+    params:
+      metric_name: "latency_ms.p95"
+      threshold: 100.0
+      operator: "lte"

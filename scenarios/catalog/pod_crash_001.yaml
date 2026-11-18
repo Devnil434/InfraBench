@@ -1,0 +1,70 @@
+schema_version: "1.0"
+id: "pod_crash_001"
+name: "PostgreSQL Database Pod Sudden Crash"
+description: "The primary PostgreSQL database container experiences an abrupt termination due to a SIGKILL signal. Service calls to /db/health and /orders begin failing with 503 and 500 status codes."
+difficulty: "easy"
+tags:
+  - "database"
+  - "crash"
+  - "availability"
+seed: 101
+
+environment:
+  services:
+    - "app"
+    - "db"
+    - "cache"
+  endpoints:
+    app_url: "http://localhost:8000"
+    health_url: "http://localhost:8000/health"
+    db_health_url: "http://localhost:8000/db/health"
+    orders_url: "http://localhost:8000/orders"
+  notes: "FastAPI depends on PostgreSQL for orders persistence and Redis for caching."
+
+initial_symptoms:
+  - "GET /db/health returns HTTP 503 Service Unavailable"
+  - "Aggregate /health reports DEGRADED status with postgresql DOWN"
+  - "Database query operations timeout or fail with connection refused"
+
+budget:
+  time_limit_seconds: 300
+  max_steps: 20
+  cost_limit_dollars: 0.50
+
+faults:
+  - type: "pod_crash"
+    name: "crash_postgres_container"
+    description: "Simulates sudden database container crash via SIGKILL"
+    params:
+      target_service: "db"
+      signal: "SIGKILL"
+      grace_period_seconds: 0
+      restart_policy: "Never"
+
+ground_truth:
+  root_cause: "The PostgreSQL database container (infrabench-db) received a SIGKILL signal causing abrupt termination of the postgres process without graceful shutdown."
+  affected_services:
+    - "db"
+    - "app"
+  expected_fix: "Restart the PostgreSQL container and verify database connectivity via pg_isready or /db/health probe."
+  symptoms:
+    - "PostgreSQL container status is Exited or stopped"
+    - "FastAPI application logs show connection refused or closed connection to port 5432"
+
+success_probes:
+  - type: "health_probe"
+    name: "db_health_restored"
+    description: "Ensure dedicated database health check reports UP"
+    params:
+      endpoint: "/db/health"
+      expected_service_status: "UP"
+      timeout_seconds: 5.0
+  - type: "http_probe"
+    name: "orders_endpoint_functional"
+    description: "Ensure /orders endpoint successfully responds with HTTP 200"
+    params:
+      url: "http://localhost:8000/orders"
+      method: "GET"
+      expected_status: 200
+      timeout_seconds: 5.0
+      expected_json_subset: null
