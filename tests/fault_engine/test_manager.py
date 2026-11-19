@@ -4,7 +4,11 @@ from types import SimpleNamespace
 import pytest
 
 from fault_engine.base import BaseFault
-from fault_engine.manager import FaultManager, FaultManagerError
+from fault_engine.manager import (
+    FaultCleanupError,
+    FaultManager,
+    FaultManagerError,
+)
 from fault_engine.registry import FaultRegistry
 
 
@@ -22,6 +26,9 @@ class RecordingFault(BaseFault):
             "fail_inject", False
         )
         self.original_state["valid"] = params.get("valid", True)
+        self.original_state["fail_reset_once"] = params.get(
+            "fail_reset_once", False
+        )
 
         self.events.append(f"inject:{name}")
 
@@ -36,13 +43,19 @@ class RecordingFault(BaseFault):
     def validate(self):
         return self.original_state.get("valid", False)
 
+
     def reset(self):
         name = self.original_state.get("label", "unnamed")
         self.events.append(f"reset:{name}")
 
+        if self.original_state.get("fail_reset_once"):
+            self.original_state["fail_reset_once"] = False
+            raise RuntimeError("Simulated cleanup failure")
+
         self.injected = False
         self.cleanup_required = False
         self.original_state.clear()
+
 
 
 def make_scenario(*faults):
@@ -162,3 +175,67 @@ def test_manager_rejects_second_injection_without_reset(manager):
         manager.inject_all(scenario)
 
     manager.reset()
+
+
+def test_failed_cleanup_retains_fault_for_retry(manager):
+    scenario = make_scenario(
+        (
+            "fault_a",
+            {
+                "label": "fault_a",
+                "fail_reset_once": True,
+            },
+        ),
+    )
+
+    manager.inject_all(scenario)
+
+    with pytest.raises(FaultCleanupError):
+        manager.reset()
+
+    # Failed cleanup must not lose the fault instance.
+    assert manager.active_fault_names == ["fault_a"]
+
+    # The second attempt should succeed.
+    manager.reset()
+
+    assert manager.active_fault_names == []
+    assert RecordingFault.events == [
+        "inject:fault_a",
+        "reset:fault_a",
+        "reset:fault_a",
+    ]
+
+
+def test_reset_continues_after_one_fault_cleanup_fails(manager):
+    scenario = make_scenario(
+        ("fault_a", {"label": "fault_a"}),
+        (
+            "fault_b",
+            {
+                "label": "fault_b",
+                "fail_reset_once": True,
+            },
+        ),
+    )
+
+    manager.inject_all(scenario)
+
+    with pytest.raises(FaultCleanupError):
+        manager.reset()
+
+    # fault_a was cleaned successfully; only fault_b remains.
+    assert manager.active_fault_names == ["fault_b"]
+
+    assert RecordingFault.events == [
+        "inject:fault_a",
+        "inject:fault_b",
+        "reset:fault_b",
+        "reset:fault_a",
+    ]
+
+    manager.reset()
+
+    assert manager.active_fault_names == []
+
+    assert RecordingFault.events[-1] == "reset:fault_b"

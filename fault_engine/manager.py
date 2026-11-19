@@ -33,7 +33,8 @@ class FaultManager:
     def inject_all(self, scenario: Any) -> List[Dict[str, Any]]:
         """Inject every fault defined in a validated scenario.
 
-        If any injection fails, attempt cleanup in reverse order.
+        If an injection fails, attempt to clean up all tracked faults.
+        Faults whose cleanup fails remain tracked for a later retry.
         """
         if self._active_faults:
             raise FaultManagerError(
@@ -50,7 +51,7 @@ class FaultManager:
                     fault_definition.type
                 )
 
-                # Track before injection so partial failures can be cleaned up.
+                # Track before injection to handle partial injection failures.
                 self._active_faults.append(
                     (fault_name, fault_instance)
                 )
@@ -98,8 +99,9 @@ class FaultManager:
         return validation_results
 
     def reset(self) -> None:
-        """Clean up all tracked faults in reverse injection order."""
+        """Clean up faults in reverse order, retaining failures for retry."""
         cleanup_errors: List[str] = []
+        remaining_faults: List[Tuple[str, BaseFault]] = []
 
         for fault_name, fault_instance in reversed(
             self._active_faults
@@ -107,11 +109,13 @@ class FaultManager:
             try:
                 fault_instance.reset()
             except Exception as exc:
-                cleanup_errors.append(
-                    f"{fault_name}: {exc}"
+                cleanup_errors.append(f"{fault_name}: {exc}")
+                remaining_faults.append(
+                    (fault_name, fault_instance)
                 )
 
-        self._active_faults.clear()
+        # Restore original injection order among faults still requiring cleanup.
+        self._active_faults = list(reversed(remaining_faults))
 
         if cleanup_errors:
             raise FaultCleanupError(
