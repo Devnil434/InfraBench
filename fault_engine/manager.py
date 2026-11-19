@@ -21,8 +21,10 @@ class FaultManager:
     def __init__(
         self,
         registry: FaultRegistry | None = None,
+        provisioner: Any | None = None,
     ) -> None:
         self.registry = registry or default_registry
+        self.provisioner = provisioner
         self._active_faults: List[Tuple[str, BaseFault]] = []
 
     @property
@@ -47,9 +49,15 @@ class FaultManager:
             for fault_definition in scenario.faults:
                 fault_name = fault_definition.name
 
-                fault_instance = self.registry.create(
-                    fault_definition.type
-                )
+                try:
+                    fault_instance = self.registry.create(
+                        fault_definition.type,
+                        provisioner=self.provisioner,
+                    )
+                except TypeError:
+                    fault_instance = self.registry.create(
+                        fault_definition.type
+                    )
 
                 # Track before injection to handle partial injection failures.
                 self._active_faults.append(

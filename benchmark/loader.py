@@ -167,4 +167,6 @@ def build_agent_payload(scenario: Scenario) -> AgentScenarioPayload:
     Returns:
         AgentScenarioPayload containing only agent-safe fields.
     """
-    return scenario.to_agent_payload()
+    if hasattr(scenario, "to_agent_payload"):
+        return scenario.to_agent_payload()
+    return scenario

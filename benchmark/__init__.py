@@ -20,6 +20,14 @@ from benchmark.schema import (
     Scenario,
     SuccessProbe,
 )
+from benchmark.environment import (
+    BaseEnvironmentProvisioner,
+    DockerComposeProvisioner,
+    EnvironmentError,
+    EnvironmentHealthCheckError,
+    EnvironmentProvisionError,
+    MockEnvironmentProvisioner,
+)
 from benchmark.loader import (
     DuplicateScenarioError,
     ScenarioError,
@@ -52,6 +60,13 @@ __all__ = [
     "EnvironmentInfo",
     "Scenario",
     "AgentScenarioPayload",
+    # Environment
+    "BaseEnvironmentProvisioner",
+    "DockerComposeProvisioner",
+    "MockEnvironmentProvisioner",
+    "EnvironmentError",
+    "EnvironmentHealthCheckError",
+    "EnvironmentProvisionError",
     # Loader
     "ScenarioError",
     "ScenarioNotFoundError",
