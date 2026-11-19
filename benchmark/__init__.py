@@ -20,6 +20,12 @@ from benchmark.schema import (
     Scenario,
     SuccessProbe,
 )
+from benchmark.agent_gateway import (
+    AgentToolGateway,
+    BudgetExceededError,
+    GatewayError,
+    ToolExecutionError,
+)
 from benchmark.environment import (
     BaseEnvironmentProvisioner,
     DockerComposeProvisioner,
@@ -28,6 +34,12 @@ from benchmark.environment import (
     EnvironmentProvisionError,
     MockEnvironmentProvisioner,
 )
+from benchmark.evaluator import (
+    EvaluationReport,
+    ProbeResult,
+    SuccessEvaluator,
+)
+from benchmark.recorder import EpisodeRecorder
 from benchmark.loader import (
     DuplicateScenarioError,
     ScenarioError,
@@ -60,6 +72,11 @@ __all__ = [
     "EnvironmentInfo",
     "Scenario",
     "AgentScenarioPayload",
+    # Agent Gateway
+    "AgentToolGateway",
+    "BudgetExceededError",
+    "GatewayError",
+    "ToolExecutionError",
     # Environment
     "BaseEnvironmentProvisioner",
     "DockerComposeProvisioner",
@@ -67,6 +84,12 @@ __all__ = [
     "EnvironmentError",
     "EnvironmentHealthCheckError",
     "EnvironmentProvisionError",
+    # Evaluator
+    "EvaluationReport",
+    "ProbeResult",
+    "SuccessEvaluator",
+    # Recorder
+    "EpisodeRecorder",
     # Loader
     "ScenarioError",
     "ScenarioNotFoundError",

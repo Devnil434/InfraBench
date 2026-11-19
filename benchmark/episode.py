@@ -96,6 +96,7 @@ class Episode:
     agent_payload: Optional[AgentScenarioPayload] = None
     fault_results: List[Dict[str, Any]] = field(default_factory=list)
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    step_count: int = 0
     evaluation_results: Optional[Dict[str, Any]] = None
 
     error: Optional[str] = None
@@ -134,13 +135,18 @@ class Episode:
         arguments: Dict[str, Any],
         result: Any,
         step: Optional[int] = None,
+        duration_ms: float = 0.0,
+        error: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Record an auditable agent tool call into the episode trajectory."""
+        self.step_count = step if step is not None else self.step_count + 1
         entry = {
-            "step": step if step is not None else len(self.tool_calls) + 1,
+            "step": self.step_count,
             "tool_name": tool_name,
             "arguments": arguments,
             "result": result,
+            "duration_ms": duration_ms,
+            "error": error,
             "timestamp": utc_now().isoformat(),
         }
         self.tool_calls.append(entry)

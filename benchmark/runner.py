@@ -3,7 +3,9 @@
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
+from benchmark.environment import BaseEnvironmentProvisioner
 from benchmark.episode import Episode, EpisodeStatus
+from benchmark.evaluator import EvaluationReport, SuccessEvaluator
 from benchmark.loader import build_agent_payload, load_scenario
 from benchmark.schema import Scenario
 from fault_engine.manager import (
@@ -24,13 +26,15 @@ class ScenarioSetupError(ScenarioRunnerError):
 
 
 class ScenarioRunner:
-    """Prepares benchmark episodes and coordinates fault and environment lifecycles."""
+    """Prepares benchmark episodes and coordinates fault, environment, and evaluation lifecycles."""
 
     def __init__(
         self,
         registry: Optional[FaultRegistry] = None,
+        provisioner: Optional[BaseEnvironmentProvisioner] = None,
     ) -> None:
         self.registry = registry or default_registry
+        self.provisioner = provisioner
         # Tracks active FaultManager instances keyed by episode_id
         self._managers: Dict[str, FaultManager] = {}
 
@@ -55,9 +59,20 @@ class ScenarioRunner:
         episode = Episode(scenario_id=scenario.id)
         episode.transition_to(EpisodeStatus.PREPARING)
 
-        manager = FaultManager(registry=self.registry)
+        manager = FaultManager(
+            registry=self.registry,
+            provisioner=self.provisioner,
+        )
 
         try:
+            # Step 0: Ensure baseline environment is provisioned and healthy
+            if self.provisioner is not None:
+                self.provisioner.provision()
+                if not self.provisioner.verify_health():
+                    raise ScenarioSetupError(
+                        "Environment baseline health check failed before fault injection."
+                    )
+
             # Step 1: Inject all scenario faults
             episode.fault_results = manager.inject_all(scenario)
             episode.transition_to(EpisodeStatus.FAULTS_INJECTED)
@@ -87,6 +102,8 @@ class ScenarioRunner:
             try:
                 if manager.active_fault_names:
                     manager.reset()
+                if self.provisioner is not None:
+                    self.provisioner.reset_to_baseline()
             except FaultCleanupError as cleanup_exc:
                 episode.record_error(
                     f"{exc}; cleanup failed: {cleanup_exc}",
@@ -124,6 +141,8 @@ class ScenarioRunner:
         if manager and manager.active_fault_names:
             try:
                 manager.reset()
+                if self.provisioner is not None:
+                    self.provisioner.reset_to_baseline()
                 self._managers.pop(episode.episode_id, None)
             except FaultCleanupError as cleanup_exc:
                 episode.record_error(
@@ -135,6 +154,18 @@ class ScenarioRunner:
                 return
 
         episode.transition_to(EpisodeStatus.AGENT_FAILED)
+
+    def evaluate(
+        self,
+        episode: Episode,
+        scenario: Scenario,
+        evaluator: Optional[SuccessEvaluator] = None,
+    ) -> EvaluationReport:
+        """Independently evaluate scenario recovery probes and record report on episode."""
+        eval_engine = evaluator or SuccessEvaluator()
+        report = eval_engine.evaluate_scenario(scenario)
+        episode.record_evaluation(report.to_dict())
+        return report
 
     def complete_episode(
         self,
@@ -175,12 +206,16 @@ class ScenarioRunner:
                 raise ScenarioRunnerError(
                     f"Episode {episode.episode_id} is CLEANUP_FAILED but has no tracked FaultManager to retry."
                 )
+            if self.provisioner is not None:
+                self.provisioner.reset_to_baseline()
             if episode.status == EpisodeStatus.RUNNING:
                 episode.transition_to(EpisodeStatus.COMPLETED)
             return
 
         try:
             manager.reset()
+            if self.provisioner is not None:
+                self.provisioner.reset_to_baseline()
         except FaultCleanupError as exc:
             episode.record_error(f"Cleanup failed: {exc}", error_type="cleanup")
             if episode.status != EpisodeStatus.CLEANUP_FAILED:
